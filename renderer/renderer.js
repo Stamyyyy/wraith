@@ -303,6 +303,8 @@
     term.open(container);
     fitAddon.fit();
     tab.term = term; tab.fitAddon = fitAddon;
+    // switchToTab() ran before tab.term existed, so its focus() call was a no-op — do it now instead.
+    if (activeTabId === id) term.focus();
 
     const spawnResult = await window.ghost.invoke('terminal-spawn', { tabId: id, shellType });
     if (!spawnResult.ok) {
