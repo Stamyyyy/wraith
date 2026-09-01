@@ -1,285 +1,389 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, globalShortcut, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 let win = null;
-let currentFilePath = null;
-let isDirty = false;
-let clickThrough = false;
+let tray = null;
+let ptyModule = null;
+let ptyLoadError = null;
 
-const isMac = process.platform === 'darwin';
-
-function titleFor(filePath, dirty) {
-  const name = filePath ? path.basename(filePath) : 'Untitled';
-  return `${dirty ? '*' : ''}${name} - Ghost Notepad`;
+try {
+  ptyModule = require('node-pty');
+} catch (err) {
+  ptyLoadError = err;
 }
 
-function updateTitle() {
-  if (win) win.setTitle(titleFor(currentFilePath, isDirty));
+const ptyProcesses = new Map(); // tabId -> pty process
+
+/* ---------- paths ---------- */
+const userDataDir = app.getPath('userData');
+const settingsPath = path.join(userDataDir, 'settings.json');
+const autosaveDir = path.join(userDataDir, 'autosave');
+const notesDirDefault = path.join(app.getPath('documents'), 'Ghost Notes');
+
+function ensureDir(p) {
+  try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
+}
+ensureDir(autosaveDir);
+
+/* ---------- settings ---------- */
+const DEFAULT_SETTINGS = {
+  windowBounds: { width: 820, height: 580, x: undefined, y: undefined },
+  textMode: 'faint',
+  invertedText: false,
+  legibilityMode: 'alpha', // 'alpha' | 'blur' | 'both'
+  blurAmount: 6,
+  fontFamily: "Consolas, monospace",
+  fontSize: 14,
+  wordWrap: true,
+  windowOpacity: 0.65,
+  alwaysOnTop: false,
+  autosaveIntervalSec: 20,
+  notesDir: notesDirDefault,
+  startWithWindows: false,
+  spellcheck: true,
+  summonHotkey: 'CommandOrControl+`'
+};
+
+function loadSettings() {
+  try {
+    const raw = fs.readFileSync(settingsPath, 'utf8');
+    return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(raw));
+  } catch (e) {
+    return Object.assign({}, DEFAULT_SETTINGS);
+  }
+}
+function saveSettings(s) {
+  try { fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2), 'utf8'); } catch (e) {}
 }
 
+let settings = loadSettings();
+ensureDir(settings.notesDir);
+
+/* ---------- filename helpers ---------- */
+function sanitizeFilename(name) {
+  return String(name).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Untitled';
+}
+function dateStamp() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}`;
+}
+
+/* ---------- window ---------- */
 function createWindow() {
+  const b = settings.windowBounds || {};
   win = new BrowserWindow({
-    width: 760,
-    height: 560,
-    minWidth: 320,
-    minHeight: 200,
+    width: b.width || 820,
+    height: b.height || 580,
+    x: b.x,
+    y: b.y,
+    minWidth: 360,
+    minHeight: 240,
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
     hasShadow: true,
+    alwaysOnTop: !!settings.alwaysOnTop,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      spellcheck: !!settings.spellcheck
     },
     icon: path.join(__dirname, 'build', 'icon.ico')
   });
 
+  win.setOpacity(typeof settings.windowOpacity === 'number' ? settings.windowOpacity : 0.65);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  updateTitle();
 
-  win.on('close', (e) => {
-    if (isDirty) {
-      e.preventDefault();
-      promptSaveBeforeAction(() => {
-        win.destroy();
-      });
-    }
+  const persistBounds = () => {
+    if (!win || win.isDestroyed() || win.isMinimized()) return;
+    settings.windowBounds = win.getBounds();
+    saveSettings(settings);
+  };
+  win.on('move', persistBounds);
+  win.on('resize', persistBounds);
+
+  win.webContents.on('context-menu', (event, params) => {
+    if (!params.misspelledWord) return;
+    const menu = Menu.buildFromTemplate(
+      params.dictionarySuggestions.map((s) => ({
+        label: s,
+        click: () => win.webContents.replaceMisspelling(s)
+      })).concat([
+        { type: 'separator' },
+        { label: 'Add to Dictionary', click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }
+      ])
+    );
+    menu.popup();
   });
 
-  buildMenu();
+  win.on('close', (e) => {
+    e.preventDefault();
+    win.hide();
+  });
 }
 
-/* ---------- unsaved-changes guard ---------- */
-function promptSaveBeforeAction(continueAction) {
+function showWindow() {
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  win.show();
+  win.focus();
+}
+function toggleWindow() {
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  if (win.isVisible() && !win.isMinimized()) win.hide();
+  else showWindow();
+}
+
+/* ---------- tray ---------- */
+function createTray() {
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.ico'));
+  tray = new Tray(icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 }));
+  tray.setToolTip('Ghost Notepad');
+  const menu = Menu.buildFromTemplate([
+    { label: 'Show / Hide', click: () => toggleWindow() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { app.exit(0); } }
+  ]);
+  tray.setContextMenu(menu);
+  tray.on('click', () => toggleWindow());
+}
+
+/* ---------- IPC: settings ---------- */
+ipcMain.handle('settings-get', () => settings);
+ipcMain.handle('settings-set', (e, patch) => {
+  settings = Object.assign({}, settings, patch);
+  saveSettings(settings);
+  if (patch.notesDir) ensureDir(settings.notesDir);
+  if (win && !win.isDestroyed()) {
+    if (typeof patch.windowOpacity === 'number') win.setOpacity(patch.windowOpacity);
+    if (typeof patch.alwaysOnTop === 'boolean') win.setAlwaysOnTop(patch.alwaysOnTop);
+  }
+  if (typeof patch.startWithWindows === 'boolean') {
+    app.setLoginItemSettings({ openAtLogin: patch.startWithWindows });
+  }
+  return settings;
+});
+
+/* ---------- IPC: window chrome ---------- */
+ipcMain.on('win-minimize', () => { if (win) win.minimize(); });
+ipcMain.on('win-close', () => { if (win) win.hide(); });
+
+/* ---------- IPC: file ops (per-tab, stateless in main) ---------- */
+ipcMain.handle('note-new-default', () => {
+  return { title: `Note ${dateStamp()}`, filePath: null };
+});
+
+ipcMain.handle('note-open-dialog', async () => {
+  const files = dialog.showOpenDialogSync(win, {
+    defaultPath: settings.notesDir,
+    filters: [
+      { name: 'Text Documents', extensions: ['txt'] },
+      { name: 'Ghost Notes (formatted)', extensions: ['html'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (!files || !files.length) return null;
+  const filePath = files[0];
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    dialog.showErrorBox('Could not open file', String(err));
+    return null;
+  }
+  const isFormatted = filePath.toLowerCase().endsWith('.html');
+  return { filePath, title: path.basename(filePath), content: raw, isFormatted };
+});
+
+ipcMain.handle('note-read-path', (e, filePath) => {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    dialog.showErrorBox('Could not open file', String(err));
+    return null;
+  }
+  const isFormatted = filePath.toLowerCase().endsWith('.html');
+  return { filePath, title: path.basename(filePath), content: raw, isFormatted };
+});
+
+ipcMain.handle('note-save', (e, { filePath, plain, html, wantsFormatted, suggestedTitle }) => {
+  let target = filePath;
+  if (!target) {
+    const name = sanitizeFilename(suggestedTitle || `Note ${dateStamp()}`);
+    target = dialog.showSaveDialogSync(win, {
+      defaultPath: path.join(settings.notesDir, name + (wantsFormatted ? '.html' : '.txt')),
+      filters: [
+        { name: 'Text Documents (plain)', extensions: ['txt'] },
+        { name: 'Ghost Note (keeps formatting)', extensions: ['html'] }
+      ]
+    });
+    if (!target) return null;
+  }
+  const isFormatted = target.toLowerCase().endsWith('.html');
+  try {
+    fs.writeFileSync(target, isFormatted ? html : plain, 'utf8');
+  } catch (err) {
+    dialog.showErrorBox('Could not save file', String(err));
+    return null;
+  }
+  return { filePath: target, title: path.basename(target) };
+});
+
+ipcMain.handle('note-confirm-close', (e, { title }) => {
   const choice = dialog.showMessageBoxSync(win, {
     type: 'warning',
     buttons: ['Save', "Don't Save", 'Cancel'],
     defaultId: 0,
     cancelId: 2,
-    message: `Do you want to save changes to ${currentFilePath ? path.basename(currentFilePath) : 'Untitled'}?`
+    message: `Do you want to save changes to ${title}?`
   });
-  if (choice === 0) {
-    doSave(() => continueAction());
-  } else if (choice === 1) {
-    continueAction();
-  }
-  // choice === 2 (Cancel): do nothing
-}
+  return ['save', 'discard', 'cancel'][choice];
+});
 
-/* ---------- file operations ---------- */
-function requestContent(cb) {
-  ipcMain.once('content-response', (e, content) => cb(content));
-  win.webContents.send('content-request');
-}
+/* ---------- IPC: autosave (recovery slot for untitled notes) ---------- */
+ipcMain.handle('autosave-write', (e, { tabId, plain }) => {
+  try {
+    fs.writeFileSync(path.join(autosaveDir, `${tabId}.txt`), plain, 'utf8');
+  } catch (err) {}
+});
+ipcMain.handle('autosave-clear', (e, { tabId }) => {
+  try { fs.unlinkSync(path.join(autosaveDir, `${tabId}.txt`)); } catch (err) {}
+});
 
-function doNew() {
-  const go = () => {
-    currentFilePath = null;
-    isDirty = false;
-    win.webContents.send('load-content', '');
-    updateTitle();
-  };
-  if (isDirty) promptSaveBeforeAction(go);
-  else go();
-}
-
-function doOpen() {
-  const go = () => {
-    const files = dialog.showOpenDialogSync(win, {
-      filters: [
-        { name: 'Text Documents', extensions: ['txt'] },
-        { name: 'Ghost Notes (formatted)', extensions: ['ghost.html'] },
-        { name: 'All Files', extensions: ['*'] }
-      ],
-      properties: ['openFile']
-    });
-    if (!files || !files.length) return;
-    const filePath = files[0];
-    let raw;
-    try {
-      raw = fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      dialog.showErrorBox('Could not open file', String(err));
-      return;
-    }
-    const isFormatted = filePath.toLowerCase().endsWith('.ghost.html');
-    currentFilePath = filePath;
-    isDirty = false;
-    win.webContents.send('load-content', raw, isFormatted);
-    updateTitle();
-  };
-  if (isDirty) promptSaveBeforeAction(go);
-  else go();
-}
-
-function writeFile(filePath, content, cb) {
-  fs.writeFile(filePath, content, 'utf8', (err) => {
-    if (err) {
-      dialog.showErrorBox('Could not save file', String(err));
-      return;
-    }
-    currentFilePath = filePath;
-    isDirty = false;
-    updateTitle();
-    if (cb) cb();
-  });
-}
-
-function doSave(cb) {
-  if (currentFilePath) {
-    requestContent((content) => writeFile(currentFilePath, content, cb));
-  } else {
-    doSaveAs(cb);
-  }
-}
-
-function doSaveAs(cb) {
-  const result = dialog.showSaveDialogSync(win, {
-    filters: [
-      { name: 'Text Documents (plain)', extensions: ['txt'] },
-      { name: 'Ghost Note (keeps formatting)', extensions: ['ghost.html'] }
-    ],
-    defaultPath: currentFilePath || 'Untitled.txt'
-  });
-  if (!result) return;
-  const wantsFormatted = result.toLowerCase().endsWith('.ghost.html');
-  ipcMain.once('content-response-typed', (e, plain, html) => {
-    writeFile(result, wantsFormatted ? html : plain, cb);
-  });
-  win.webContents.send('content-request-typed');
-}
-
-/* ---------- menu ---------- */
-function buildMenu() {
-  const send = (channel, ...args) => () => win.webContents.send(channel, ...args);
-
-  const template = [
-    {
-      label: 'File',
-      submenu: [
-        { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => doNew() },
-        { label: 'New Window', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
-        { type: 'separator' },
-        { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => doOpen() },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => doSave() },
-        { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: () => doSaveAs() },
-        { type: 'separator' },
-        { label: 'Print...', accelerator: 'CmdOrCtrl+P', click: () => win.webContents.print() },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: send('do-undo') },
-        { label: 'Redo', accelerator: 'CmdOrCtrl+Y', click: send('do-redo') },
-        { type: 'separator' },
-        { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
-        { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
-        { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
-        { label: 'Delete', click: send('do-delete') },
-        { type: 'separator' },
-        { label: 'Find...', accelerator: 'CmdOrCtrl+F', click: send('open-find') },
-        { label: 'Find Next', accelerator: 'F3', click: send('find-next') },
-        { label: 'Find Previous', accelerator: 'Shift+F3', click: send('find-prev') },
-        { label: 'Replace...', accelerator: 'CmdOrCtrl+H', click: send('open-replace') },
-        { type: 'separator' },
-        { label: 'Select All', accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
-        { label: 'Time/Date', accelerator: 'F5', click: send('insert-datetime') }
-      ]
-    },
-    {
-      label: 'Format',
-      submenu: [
-        { label: 'Bold', accelerator: 'CmdOrCtrl+B', click: send('fmt-bold') },
-        { label: 'Italic', accelerator: 'CmdOrCtrl+I', click: send('fmt-italic') },
-        { label: 'Underline', accelerator: 'CmdOrCtrl+U', click: send('fmt-underline') },
-        { type: 'separator' },
-        { label: 'Font...', click: send('open-font-picker') },
-        { label: 'Word Wrap', type: 'checkbox', checked: true, click: (item) => win.webContents.send('toggle-wordwrap', item.checked) },
-        { type: 'separator' },
-        {
-          label: 'Text Transparency',
-          submenu: [
-            { label: 'Fully Transparent', type: 'radio', checked: false, click: send('text-mode', 'ghost') },
-            { label: 'Kinda Transparent', type: 'radio', checked: true, click: send('text-mode', 'faint') },
-            { label: 'Solid (Black && White)', type: 'radio', checked: false, click: send('text-mode', 'solid') }
-          ]
-        },
-        { label: 'Invert to White Text', type: 'checkbox', checked: false, click: (item) => win.webContents.send('toggle-white-text', item.checked) }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: send('zoom', 1) },
-        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: send('zoom', -1) },
-        { label: 'Restore Default Zoom', accelerator: 'CmdOrCtrl+0', click: send('zoom', 0) },
-        { type: 'separator' },
-        { label: 'Status Bar', type: 'checkbox', checked: true, click: (item) => win.webContents.send('toggle-statusbar', item.checked) },
-        { type: 'separator' },
-        {
-          label: 'Window Opacity',
-          submenu: [
-            { label: '100%', type: 'radio', checked: false, click: () => win.setOpacity(1.0) },
-            { label: '85%', type: 'radio', checked: false, click: () => win.setOpacity(0.85) },
-            { label: '65%', type: 'radio', checked: true, click: () => win.setOpacity(0.65) },
-            { label: '40%', type: 'radio', checked: false, click: () => win.setOpacity(0.4) },
-            { label: '20%', type: 'radio', checked: false, click: () => win.setOpacity(0.2) }
-          ]
-        },
-        { label: 'Always on Top', type: 'checkbox', checked: false, click: (item) => win.setAlwaysOnTop(item.checked) },
-        {
-          label: 'Click-Through Mode',
-          accelerator: 'CmdOrCtrl+Shift+T',
-          type: 'checkbox',
-          checked: false,
-          click: (item) => setClickThrough(item.checked)
+/* ---------- IPC: search notes (safe: pure JS, no shell) ---------- */
+ipcMain.handle('search-notes', (e, query) => {
+  const q = String(query || '').toLowerCase();
+  if (!q) return [];
+  const results = [];
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!/\.(txt|html)$/i.test(entry.name)) continue;
+      const nameMatch = entry.name.toLowerCase().includes(q);
+      let snippet = null;
+      let contentMatch = false;
+      try {
+        const content = fs.readFileSync(full, 'utf8');
+        const idx = content.toLowerCase().indexOf(q);
+        if (idx !== -1) {
+          contentMatch = true;
+          const start = Math.max(0, idx - 40);
+          snippet = content.slice(start, idx + q.length + 40).replace(/\s+/g, ' ');
         }
-      ]
+      } catch (e) {}
+      if (nameMatch || contentMatch) {
+        results.push({ filePath: full, title: entry.name, snippet, nameMatch });
+        if (results.length >= 50) return;
+      }
     }
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-function setClickThrough(enabled) {
-  clickThrough = enabled;
-  win.setIgnoreMouseEvents(enabled, { forward: true });
-  win.webContents.send('click-through-changed', enabled);
-}
-
-/* ---------- IPC from renderer ---------- */
-ipcMain.on('mark-dirty', (e, dirty) => {
-  isDirty = dirty;
-  updateTitle();
+  }
+  walk(settings.notesDir);
+  return results;
 });
 
-ipcMain.on('request-toggle-click-through', () => {
-  setClickThrough(!clickThrough);
+/* ---------- IPC: terminal (PTY) ---------- */
+ipcMain.handle('terminal-available', () => !ptyLoadError);
+
+ipcMain.handle('terminal-spawn', (e, { tabId, shellType }) => {
+  if (!ptyModule) {
+    return { ok: false, error: ptyLoadError ? ptyLoadError.message : 'node-pty not available' };
+  }
+  let shell, args;
+  if (shellType === 'wsl') {
+    shell = 'wsl.exe';
+    args = [];
+  } else {
+    shell = process.env.COMSPEC || 'cmd.exe';
+    args = [];
+  }
+  try {
+    const proc = ptyModule.spawn(shell, args, {
+      name: 'xterm-color',
+      cols: 80,
+      rows: 24,
+      cwd: os.homedir(),
+      env: process.env
+    });
+    proc.onData((data) => {
+      if (win && !win.isDestroyed()) win.webContents.send('terminal-data', tabId, data);
+    });
+    proc.onExit(() => {
+      ptyProcesses.delete(tabId);
+      if (win && !win.isDestroyed()) win.webContents.send('terminal-exit', tabId);
+    });
+    ptyProcesses.set(tabId, proc);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 });
 
-ipcMain.on('win-minimize', () => { if (win) win.minimize(); });
-ipcMain.on('win-close', () => { if (win) win.close(); });
+ipcMain.on('terminal-input', (e, tabId, data) => {
+  const proc = ptyProcesses.get(tabId);
+  if (proc) proc.write(data);
+});
 
+ipcMain.on('terminal-resize', (e, tabId, cols, rows) => {
+  const proc = ptyProcesses.get(tabId);
+  if (proc) {
+    try { proc.resize(cols, rows); } catch (err) {}
+  }
+});
+
+ipcMain.on('terminal-kill', (e, tabId) => {
+  const proc = ptyProcesses.get(tabId);
+  if (proc) {
+    try { proc.kill(); } catch (err) {}
+    ptyProcesses.delete(tabId);
+  }
+});
+
+/* ---------- IPC: click-through & always-on-top ---------- */
+let clickThrough = false;
+ipcMain.on('toggle-click-through', () => {
+  clickThrough = !clickThrough;
+  win.setIgnoreMouseEvents(clickThrough, { forward: true });
+  win.webContents.send('click-through-changed', clickThrough);
+});
+
+/* ---------- app lifecycle ---------- */
 app.whenReady().then(() => {
   createWindow();
+  createTray();
 
-  // Escape hatch: always lets you regain mouse control even mid click-through.
-  globalShortcut.register('CommandOrControl+Shift+T', () => {
-    setClickThrough(!clickThrough);
+  globalShortcut.register(settings.summonHotkey || 'CommandOrControl+`', () => {
+    toggleWindow();
   });
+  globalShortcut.register('CommandOrControl+Shift+T', () => {
+    if (win && !win.isDestroyed()) win.webContents.send('request-click-through-toggle');
+  });
+
+  if (settings.startWithWindows) {
+    app.setLoginItemSettings({ openAtLogin: true });
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else showWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (!isMac) app.quit();
+  // keep running in tray; do not quit
+});
+
+app.on('before-quit', () => {
+  for (const [, proc] of ptyProcesses) {
+    try { proc.kill(); } catch (e) {}
+  }
 });
 
 app.on('will-quit', () => {
