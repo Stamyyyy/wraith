@@ -1,5 +1,6 @@
 :root {
   --text-r: 0; --text-g: 0; --text-b: 0; --text-a: 0.55;
+  --glow-r: 255; --glow-g: 255; --glow-b: 255;
   --font-family: Consolas, monospace;
   --font-size: 14px;
   --zoom: 1;
@@ -136,6 +137,20 @@ html, body {
 }
 .editor img { max-width: 100%; border-radius: 4px; }
 .editor::selection, .editor *::selection { background: rgba(47, 217, 143, 0.35); }
+
+/* Auto-contrast glow: an outline in the OPPOSITE tone from the text color
+   (light glow around dark text, dark glow around light text). This stays
+   legible against any background because the contrast is anchored to the
+   text's own color choice, not to whatever happens to be behind the window
+   at a given moment — no screen-sampling, no lag, no permissions. */
+.editor.glow-on {
+  text-shadow:
+    -1px -1px 0 rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.9),
+     1px -1px 0 rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.9),
+    -1px  1px 0 rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.9),
+     1px  1px 0 rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.9),
+     0 0 6px rgba(var(--glow-r), var(--glow-g), var(--glow-b), 0.55);
+}
 .editor.nowrap { white-space: pre; }
 body.blur-bg .editor-wrap, .legibility-blur .editor-wrap { backdrop-filter: blur(var(--blur-amount)); }
 

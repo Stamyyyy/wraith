@@ -12,6 +12,7 @@ const INVOKE_CHANNELS = [
   'autosave-clear',
   'search-notes',
   'terminal-available',
+  'terminal-mode',
   'terminal-spawn'
 ];
 

@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   windowBounds: { width: 820, height: 580, x: undefined, y: undefined },
   textMode: 'faint',
   invertedText: false,
+  charGlow: true,
   legibilityMode: 'alpha', // 'alpha' | 'blur' | 'both'
   blurAmount: 6,
   fontFamily: "Consolas, monospace",
@@ -290,28 +291,40 @@ ipcMain.handle('search-notes', (e, query) => {
 });
 
 /* ---------- IPC: terminal (PTY) ---------- */
-ipcMain.handle('terminal-available', () => !ptyLoadError);
+ipcMain.handle('terminal-available', () => true); // always true now: falls back to child_process if node-pty is missing
+ipcMain.handle('terminal-mode', () => (ptyModule ? 'pty' : 'fallback'));
+
+/* Wraps a plain child_process in the same {write,resize,kill,onData,onExit}
+   shape node-pty gives us, so the rest of the app doesn't care which one is
+   actually running. No real PTY means: no proper resize, and interactive
+   line-editing/colors inside WSL specifically will be degraded (bash can't
+   tell it has a terminal) — but commands run and output streams either way,
+   instead of the tab just being dead. */
+function spawnFallback(shell, args, cwd, env) {
+  const cp = require('child_process').spawn(shell, args, { cwd, env, windowsHide: true });
+  const dataCbs = [];
+  const exitCbs = [];
+  cp.stdout.on('data', (d) => dataCbs.forEach((cb) => cb(d.toString('utf8'))));
+  cp.stderr.on('data', (d) => dataCbs.forEach((cb) => cb(d.toString('utf8'))));
+  cp.on('error', (err) => dataCbs.forEach((cb) => cb(`\r\n[failed to start: ${err.message}]\r\n`)));
+  cp.on('exit', () => exitCbs.forEach((cb) => cb()));
+  return {
+    write: (data) => { try { cp.stdin.write(data); } catch (e) {} },
+    resize: () => {}, // plain pipes have no concept of terminal size
+    kill: () => { try { cp.kill(); } catch (e) {} },
+    onData: (cb) => dataCbs.push(cb),
+    onExit: (cb) => exitCbs.push(cb)
+  };
+}
 
 ipcMain.handle('terminal-spawn', (e, { tabId, shellType }) => {
-  if (!ptyModule) {
-    return { ok: false, error: ptyLoadError ? ptyLoadError.message : 'node-pty not available' };
-  }
-  let shell, args;
-  if (shellType === 'wsl') {
-    shell = 'wsl.exe';
-    args = [];
-  } else {
-    shell = process.env.COMSPEC || 'cmd.exe';
-    args = [];
-  }
+  const shell = shellType === 'wsl' ? 'wsl.exe' : (process.env.COMSPEC || 'cmd.exe');
+  const usingFallback = !ptyModule;
   try {
-    const proc = ptyModule.spawn(shell, args, {
-      name: 'xterm-color',
-      cols: 80,
-      rows: 24,
-      cwd: os.homedir(),
-      env: process.env
-    });
+    const proc = ptyModule
+      ? ptyModule.spawn(shell, [], { name: 'xterm-color', cols: 80, rows: 24, cwd: os.homedir(), env: process.env })
+      : spawnFallback(shell, [], os.homedir(), process.env);
+
     proc.onData((data) => {
       if (win && !win.isDestroyed()) win.webContents.send('terminal-data', tabId, data);
     });
@@ -320,7 +333,7 @@ ipcMain.handle('terminal-spawn', (e, { tabId, shellType }) => {
       if (win && !win.isDestroyed()) win.webContents.send('terminal-exit', tabId);
     });
     ptyProcesses.set(tabId, proc);
-    return { ok: true };
+    return { ok: true, fallback: usingFallback };
   } catch (err) {
     return { ok: false, error: String(err) };
   }

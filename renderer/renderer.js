@@ -21,6 +21,7 @@
   let zoom = 1;
   let settings = {};
   let terminalAvailable = false;
+  let terminalMode = 'pty'; // 'pty' | 'fallback'
   let tabCounter = 0;
 
   function genId() { return 't' + Date.now() + '-' + (tabCounter++); }
@@ -38,10 +39,18 @@
     root.setProperty('--text-r', settings.invertedText ? '255' : '0');
     root.setProperty('--text-g', settings.invertedText ? '255' : '0');
     root.setProperty('--text-b', settings.invertedText ? '255' : '0');
+    // glow is always the OPPOSITE tone of the text, so the outline stays
+    // visible against the text itself regardless of what's actually behind it
+    root.setProperty('--glow-r', settings.invertedText ? '0' : '255');
+    root.setProperty('--glow-g', settings.invertedText ? '0' : '255');
+    root.setProperty('--glow-b', settings.invertedText ? '0' : '255');
     root.setProperty('--font-family', settings.fontFamily || 'Consolas, monospace');
     root.setProperty('--font-size', (settings.fontSize || 14) + 'px');
     root.setProperty('--blur-amount', (settings.blurAmount ?? 6) + 'px');
-    document.querySelectorAll('.editor').forEach((ed) => ed.classList.toggle('nowrap', !settings.wordWrap));
+    document.querySelectorAll('.editor').forEach((ed) => {
+      ed.classList.toggle('nowrap', !settings.wordWrap);
+      ed.classList.toggle('glow-on', settings.charGlow !== false);
+    });
     document.querySelectorAll('.editor-wrap, .term-pane').forEach((el) => {
       el.classList.toggle('legibility-blur', settings.legibilityMode === 'blur' || settings.legibilityMode === 'both');
     });
@@ -52,6 +61,7 @@
   function populateSettingsPanel() {
     document.getElementById('set-text-mode').value = settings.textMode || 'faint';
     document.getElementById('set-invert').checked = !!settings.invertedText;
+    document.getElementById('set-char-glow').checked = settings.charGlow !== false;
     document.getElementById('set-legibility').value = settings.legibilityMode || 'alpha';
     document.getElementById('set-blur-amount').value = settings.blurAmount ?? 6;
     document.getElementById('set-window-opacity').value = settings.windowOpacity ?? 0.65;
@@ -61,9 +71,9 @@
     document.getElementById('set-autosave-interval').value = settings.autosaveIntervalSec ?? 20;
     document.getElementById('set-start-with-windows').checked = !!settings.startWithWindows;
     document.getElementById('set-notes-dir').textContent = settings.notesDir || '-';
-    document.getElementById('set-terminal-status').textContent = terminalAvailable
-      ? 'Available'
-      : 'Not available (node-pty failed to load — reinstall may be needed)';
+    document.getElementById('set-terminal-status').textContent = terminalMode === 'pty'
+      ? 'Available (full terminal)'
+      : 'Available in basic mode (node-pty failed to load — install Visual Studio Build Tools + Python, then reinstall, for the full experience)';
   }
   async function patchSettings(patch) {
     settings = await window.ghost.invoke('settings-set', patch);
@@ -77,6 +87,7 @@
   document.getElementById('settings-close').addEventListener('click', () => { settingsPanel.hidden = true; });
   document.getElementById('set-text-mode').addEventListener('change', (e) => patchSettings({ textMode: e.target.value }));
   document.getElementById('set-invert').addEventListener('change', (e) => patchSettings({ invertedText: e.target.checked }));
+  document.getElementById('set-char-glow').addEventListener('change', (e) => patchSettings({ charGlow: e.target.checked }));
   document.getElementById('set-legibility').addEventListener('change', (e) => patchSettings({ legibilityMode: e.target.value }));
   document.getElementById('set-blur-amount').addEventListener('input', (e) => patchSettings({ blurAmount: Number(e.target.value) }));
   document.getElementById('set-window-opacity').addEventListener('input', (e) => patchSettings({ windowOpacity: Number(e.target.value) }));
@@ -162,6 +173,7 @@
     editor.spellcheck = settings.spellcheck !== false;
     if (isFormatted) editor.innerHTML = content; else editor.innerText = content;
     editor.classList.toggle('nowrap', !settings.wordWrap);
+    editor.classList.toggle('glow-on', settings.charGlow !== false);
     pane.appendChild(editor);
     contentArea.appendChild(pane);
 
@@ -275,11 +287,6 @@
     pane.style.display = 'block';
     switchToTab(id);
 
-    if (!terminalAvailable) {
-      pane.innerHTML = '<div class="term-unavailable">Terminal support isn\'t available on this install (node-pty failed to load). Everything else in Ghost Notepad still works.</div>';
-      return;
-    }
-
     const container = document.createElement('div');
     container.className = 'term-container';
     pane.appendChild(container);
@@ -301,6 +308,12 @@
     if (!spawnResult.ok) {
       term.write(`\r\n\x1b[31mFailed to start: ${spawnResult.error}\x1b[0m\r\n`);
       return;
+    }
+    if (spawnResult.fallback) {
+      const extra = shellType === 'wsl'
+        ? ' Bash line-editing/colors may be degraded without a real PTY.'
+        : '';
+      term.write(`\x1b[33m[basic mode: no real PTY, node-pty didn't load.${extra} Commands and output still work.]\x1b[0m\r\n`);
     }
 
     term.onData((data) => window.ghost.send('terminal-input', id, data));
@@ -465,6 +478,7 @@
   /* ================= init ================= */
   (async function init() {
     terminalAvailable = await window.ghost.invoke('terminal-available');
+    terminalMode = await window.ghost.invoke('terminal-mode');
     await loadSettings();
     showLauncher();
   })();
