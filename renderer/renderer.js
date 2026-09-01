@@ -143,12 +143,15 @@
     updateTitlebar();
   }
 
+  // note panes are flex containers (toolbar + editor-wrap); terminal panes are plain blocks
+  function paneDisplay(tab) { return tab.type === 'note' ? 'flex' : 'block'; }
+
   function switchToTab(id) {
     const tab = tabs.find((t) => t.id === id);
     if (!tab) return;
     activeTabId = id;
     launcher.style.display = 'none';
-    tabs.forEach((t) => { t.paneEl.style.display = t.id === id ? 'block' : 'none'; });
+    tabs.forEach((t) => { t.paneEl.style.display = t.id === id ? paneDisplay(t) : 'none'; });
     renderTabBar();
     updateTitlebar();
     if (tab.type === 'note') {
@@ -165,8 +168,27 @@
   function createNoteTab({ filePath = null, title, content = '', isFormatted = false }) {
     const id = genId();
     const pane = document.createElement('div');
-    pane.className = 'pane editor-wrap';
+    pane.className = 'pane note-pane';
     pane.style.display = 'none';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'note-toolbar';
+    const btn = (cls, label, title, cmd) => {
+      const b = document.createElement('button');
+      b.className = cls; b.textContent = label; b.title = title; b.type = 'button';
+      b.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus/selection in the editor
+      b.addEventListener('click', () => document.execCommand(cmd));
+      toolbar.appendChild(b);
+      return b;
+    };
+    btn('b', 'B', 'Bold (Ctrl+B)', 'bold');
+    btn('i', 'I', 'Italic (Ctrl+I)', 'italic');
+    btn('u', 'U', 'Underline (Ctrl+U)', 'underline');
+    btn('s', 'S', 'Strikethrough', 'strikeThrough');
+    pane.appendChild(toolbar);
+
+    const editorWrap = document.createElement('div');
+    editorWrap.className = 'editor-wrap';
     const editor = document.createElement('div');
     editor.className = 'editor';
     editor.contentEditable = 'true';
@@ -174,7 +196,8 @@
     if (isFormatted) editor.innerHTML = content; else editor.innerText = content;
     editor.classList.toggle('nowrap', !settings.wordWrap);
     editor.classList.toggle('glow-on', settings.charGlow !== false);
-    pane.appendChild(editor);
+    editorWrap.appendChild(editor);
+    pane.appendChild(editorWrap);
     contentArea.appendChild(pane);
 
     const tab = { id, type: 'note', title, filePath, isDirty: false, paneEl: pane, editorEl: editor, autosaveTimer: null };
@@ -191,7 +214,7 @@
     startAutosave(tab);
 
     tabs.forEach((t) => { t.paneEl.style.display = 'none'; });
-    pane.style.display = 'block';
+    pane.style.display = paneDisplay(tab);
     switchToTab(id);
     return tab;
   }
