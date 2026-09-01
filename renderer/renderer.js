@@ -315,10 +315,45 @@
       const extra = shellType === 'wsl'
         ? ' Bash line-editing/colors may be degraded without a real PTY.'
         : '';
-      term.write(`\x1b[33m[basic mode: no real PTY, node-pty didn't load.${extra} Commands and output still work.]\x1b[0m\r\n`);
+      term.write(`\x1b[33m[basic mode: no real PTY, node-pty didn't load.${extra} Commands and output still work, but typing is locally echoed since the shell can't do it for us over a plain pipe. Arrow keys/tab-completion aren't supported here.]\x1b[0m\r\n`);
     }
 
-    term.onData((data) => window.ghost.send('terminal-input', id, data));
+    tab.fallback = !!spawnResult.fallback;
+    tab.lineBuffer = '';
+    tab.escapeSwallow = 0;
+
+    term.onData((data) => {
+      if (!tab.fallback) {
+        // real PTY: the shell itself echoes, so just pass keystrokes straight through
+        window.ghost.send('terminal-input', id, data);
+        return;
+      }
+      // Fallback mode: plain pipes get no echo from Windows console programs, so we
+      // fake a basic line editor client-side — printable chars, Backspace, Enter, Ctrl+C.
+      // Arrow keys/escape sequences are swallowed rather than leaking garbage into the line.
+      for (const ch of data) {
+        const code = ch.charCodeAt(0);
+        if (tab.escapeSwallow > 0) { tab.escapeSwallow--; continue; }
+        if (code === 27) { tab.escapeSwallow = 2; continue; } // ESC-prefixed sequence (arrows etc.)
+        if (ch === '\r') {
+          term.write('\r\n');
+          window.ghost.send('terminal-input', id, tab.lineBuffer + '\n');
+          tab.lineBuffer = '';
+        } else if (code === 127 || code === 8) {
+          if (tab.lineBuffer.length > 0) {
+            tab.lineBuffer = tab.lineBuffer.slice(0, -1);
+            term.write('\b \b');
+          }
+        } else if (code === 3) {
+          tab.lineBuffer = '';
+          term.write('^C\r\n');
+          window.ghost.send('terminal-input', id, '\x03');
+        } else if (code >= 32) {
+          tab.lineBuffer += ch;
+          term.write(ch);
+        }
+      }
+    });
     term.onResize(({ cols, rows }) => window.ghost.send('terminal-resize', id, cols, rows));
 
     const ro = new ResizeObserver(() => { try { fitAddon.fit(); } catch (e) {} });
