@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps || exit 0",
     "dist": "electron-builder"
   },
   "author": "Stam",
