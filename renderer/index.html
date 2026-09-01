@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Ghost Notepad</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="mode-faint">
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-icon">
+      <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 2h9l5 5v15H5z" fill="none" stroke="#e8e8ea" stroke-width="1.3"/><path d="M14 2v5h5" fill="none" stroke="#e8e8ea" stroke-width="1.3"/><line x1="7.5" y1="12" x2="16.5" y2="12" stroke="#e8e8ea" stroke-width="1"/><line x1="7.5" y1="15" x2="16.5" y2="15" stroke="#e8e8ea" stroke-width="1"/><line x1="7.5" y1="18" x2="13" y2="18" stroke="#e8e8ea" stroke-width="1"/></svg>
+    </div>
+    <div class="titlebar-text" id="titlebar-text">Untitled - Ghost Notepad</div>
+    <div class="titlebar-btns">
+      <button id="btn-min" title="Minimize">&#x2013;</button>
+      <button id="btn-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="editor-wrap">
+    <div id="editor" class="editor" contenteditable="true" spellcheck="false"></div>
+  </div>
+
+  <div class="find-bar" id="find-bar" hidden>
+    <input type="text" id="find-input" placeholder="Find">
+    <button id="find-next-btn">Next</button>
+    <button id="find-prev-btn">Prev</button>
+    <span class="find-replace-only">
+      <input type="text" id="replace-input" placeholder="Replace with">
+      <button id="replace-btn">Replace</button>
+      <button id="replace-all-btn">Replace All</button>
+    </span>
+    <button id="find-close-btn" title="Close">&#x2715;</button>
+  </div>
+
+  <div class="font-panel" id="font-panel" hidden>
+    <select id="font-family">
+      <option value="Consolas, monospace">Consolas</option>
+      <option value="'Segoe UI', sans-serif">Segoe UI</option>
+      <option value="Georgia, serif">Georgia</option>
+      <option value="'Courier New', monospace">Courier New</option>
+      <option value="'Comic Sans MS', sans-serif">Comic Sans MS</option>
+    </select>
+    <select id="font-size">
+      <option>10</option><option>12</option><option selected>14</option>
+      <option>16</option><option>18</option><option>24</option><option>32</option>
+    </select>
+    <button id="font-apply">Apply</button>
+    <button id="font-close">&#x2715;</button>
+  </div>
+
+  <div class="statusbar" id="statusbar">
+    <span id="status-pos">Ln 1, Col 1</span>
+    <span id="status-clickthrough" hidden>Click-through: ON (Ctrl+Shift+T to regain control)</span>
+    <span id="status-zoom">100%</span>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

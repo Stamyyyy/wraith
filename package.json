@@ -1,0 +1,35 @@
+{
+  "name": "ghost-notepad",
+  "version": "1.0.0",
+  "description": "A transparent, see-through Notepad replacement with text formatting and adjustable text/window transparency.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "Stam",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.stam.ghostnotepad",
+    "productName": "Ghost Notepad",
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "build/icon.ico"
+    ]
+  }
+}

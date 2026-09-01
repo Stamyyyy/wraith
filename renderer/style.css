@@ -1,0 +1,97 @@
+:root {
+  --text-r: 0; --text-g: 0; --text-b: 0; --text-a: 0.55;
+  --font-family: Consolas, monospace;
+  --font-size: 14px;
+  --zoom: 1;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI", sans-serif;
+  user-select: none;
+}
+
+/* ---------- titlebar ---------- */
+.titlebar {
+  height: 32px;
+  display: flex; align-items: center;
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-app-region: drag;
+  padding: 0 0 0 8px;
+  color: #e8e8ea;
+  font-size: 12px;
+}
+.titlebar-icon { display: flex; align-items: center; margin-right: 6px; opacity: 0.85; }
+.titlebar-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.titlebar-btns { display: flex; -webkit-app-region: no-drag; }
+.titlebar-btns button {
+  width: 40px; height: 32px; border: none; background: transparent; color: #e8e8ea;
+  font-size: 13px; cursor: pointer;
+}
+.titlebar-btns button:hover { background: rgba(255,255,255,0.12); }
+#btn-close:hover { background: #e81123; color: #fff; }
+
+/* ---------- editor ---------- */
+.editor-wrap {
+  position: absolute; top: 32px; left: 0; right: 0; bottom: 24px;
+  overflow: auto;
+}
+.editor {
+  min-height: 100%;
+  padding: 10px 14px;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-family);
+  font-size: calc(var(--font-size) * var(--zoom));
+  line-height: 1.5;
+  color: rgba(var(--text-r), var(--text-g), var(--text-b), var(--text-a));
+  caret-color: #2fd98f; /* always visible regardless of text transparency */
+  user-select: text;
+  cursor: text;
+}
+.editor::selection, .editor *::selection {
+  background: rgba(47, 217, 143, 0.35);
+}
+.editor.nowrap { white-space: pre; }
+
+/* ---------- find/replace bar ---------- */
+.find-bar, .font-panel {
+  position: absolute; top: 36px; right: 10px;
+  background: rgba(20, 20, 22, 0.92);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 6px;
+  display: flex; align-items: center; gap: 4px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  z-index: 10;
+}
+.find-bar input, .font-panel select {
+  background: #0a0a0b; color: #f4f4f5; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px; padding: 4px 6px; font-size: 12px;
+}
+.find-bar button, .font-panel button {
+  background: rgba(255,255,255,0.08); color: #f4f4f5; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+}
+.find-bar button:hover, .font-panel button:hover { background: rgba(255,255,255,0.16); }
+.find-replace-only { display: flex; align-items: center; gap: 4px; }
+
+/* ---------- status bar ---------- */
+.statusbar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 24px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+  background: rgba(18, 18, 20, 0.55);
+  backdrop-filter: blur(6px);
+  color: rgba(232,232,234,0.75);
+  font-size: 11px;
+  padding: 0 10px;
+}
+.statusbar.hidden { display: none; }
+#status-clickthrough { color: #2fd98f; }
