@@ -28,13 +28,27 @@ each opens as its own tab.
   text.
 - **Global summon hotkey**: `Ctrl+\`` shows/hides the window from anywhere,
   no need to focus it first (same convention VS Code uses for its terminal).
+  Optionally summons to your current mouse position instead of its last spot.
 - **System tray**: closing the window hides it to tray instead of quitting.
+  Quitting for real (from the tray menu) asks about any unsaved notes first,
+  the same Save / Don't Save / Cancel prompt you get closing a single tab.
 - **Start with Windows**, **spell check** (with real right-click
   suggestions), and **remembers window position/size** — all in Settings.
 - Paste images and emoji directly into notes — this is native `contenteditable`
   behavior, not something bolted on, so it just works.
-- Saves as plain `.txt` (drop-in Notepad-compatible) or `.html` if you want
-  to keep bold/italic/underline formatting.
+- **Formatting toolbar**: bold/italic/underline/strikethrough, bullet lists,
+  checklist items (real checkboxes), sub-item arrows, left/center/right
+  alignment, and a font family/size picker — all from a Google-Docs-style
+  toolbar on every note.
+- **Autocorrect**: fixes ~50 common typos as you type, with a dotted
+  underline you can hover for a one-click revert to what you actually typed.
+- **Calculator side panel**: a collapsible basic calculator (drag the arrow
+  out from the edge) with an advanced mode for graphing expressions
+  (`sin`, `cos`, `sqrt`, `^`, etc.) on a canvas plot — no `eval()`, it's a
+  hand-rolled recursive-descent parser.
+- Saves as plain `.txt` (drop-in Notepad-compatible) by default, or `.html`
+  automatically once a note actually has formatting applied, so nothing
+  gets silently discarded on save.
 
 ## Keyboard shortcuts
 
@@ -73,13 +87,9 @@ npm run dist
 
 - `icon-src/` holds the vector sources for every icon (app icon, and the
   three launcher tiles) plus `make_ico.py` to regenerate `build/icon.ico`.
-- Visually verified via headless Chrome renders of the launcher, note-tab
-  creation, and Settings panel (with a mocked IPC bridge) — this caught and
-  fixed two real bugs (a broken search-result-open path, and a stale
-  line/column indicator after programmatic text insertion). The actual
-  terminal spawning (`node-pty` + real `cmd.exe`/`wsl.exe` processes) has
-  **not** been run end-to-end — that needs a real Windows machine with the
-  native module compiled. Test it for real and tell me what breaks.
+- Tested end-to-end on a real Windows machine, including real `cmd.exe`/
+  `wsl.exe` terminal tabs through a compiled `node-pty`, file save/load,
+  autosave, and every feature above.
 
 ## License
 
