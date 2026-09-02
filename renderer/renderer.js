@@ -177,18 +177,50 @@
 
     const toolbar = document.createElement('div');
     toolbar.className = 'note-toolbar';
-    const btn = (cls, label, title, cmd) => {
+    const btn = (cls, label, title, action) => {
       const b = document.createElement('button');
       b.className = cls; b.textContent = label; b.title = title; b.type = 'button';
       b.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus/selection in the editor
-      b.addEventListener('click', () => document.execCommand(cmd));
+      b.addEventListener('click', () => {
+        if (typeof action === 'function') action();
+        else document.execCommand(action);
+      });
       toolbar.appendChild(b);
       return b;
     };
+    const sep = () => { const s = document.createElement('span'); s.className = 'toolbar-sep'; toolbar.appendChild(s); };
+
     btn('b', 'B', 'Bold (Ctrl+B)', 'bold');
     btn('i', 'I', 'Italic (Ctrl+I)', 'italic');
     btn('u', 'U', 'Underline (Ctrl+U)', 'underline');
     btn('s', 'S', 'Strikethrough', 'strikeThrough');
+    sep();
+    btn('bullet', '•', 'Bullet list', 'insertUnorderedList');
+    btn('check', '☑', 'Checklist item', () => {
+      document.execCommand('insertHTML', false,
+        '<label class="checklist-item" contenteditable="false"><input type="checkbox">&nbsp;</label>');
+      // Chrome leaves the caret BEFORE a just-inserted contenteditable="false"
+      // node instead of after it (there's no valid caret position inside a
+      // non-editable island), so anything typed next would land in front of
+      // the checkbox. Explicitly move the caret past it.
+      const items = editor.querySelectorAll('.checklist-item');
+      const inserted = items[items.length - 1];
+      if (inserted) {
+        const r = document.createRange();
+        r.setStartAfter(inserted);
+        r.collapse(true);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+      }
+    });
+    btn('subitem', '→', 'Sub-item on next line', () => {
+      document.execCommand('insertHTML', false, '<br>&nbsp;&nbsp;&nbsp;&nbsp;→&nbsp;');
+    });
+    sep();
+    btn('align-l', 'L', 'Align left', 'justifyLeft');
+    btn('align-c', 'C', 'Align center', 'justifyCenter');
+    btn('align-r', 'R', 'Align right', 'justifyRight');
     pane.appendChild(toolbar);
 
     const editorWrap = document.createElement('div');
@@ -538,6 +570,120 @@
     document.documentElement.style.setProperty('--zoom', zoom);
     statusZoom.textContent = Math.round(zoom * 100) + '%';
   }
+
+  /* ================= autocorrect + hover-to-revert ================= */
+  // Curated common-typo list, not a live dictionary API — Electron has no
+  // synchronous "is this word misspelled" query, only the reactive
+  // right-click suggestions already wired up via spellcheck. This covers
+  // the most common English typos and corrects them on word-boundary
+  // (space/punctuation), wrapping the fix in a span you can hover to revert.
+  const AUTOCORRECT_MAP = {
+    teh: 'the', adn: 'and', recieve: 'receive', recieved: 'received',
+    seperate: 'separate', definately: 'definitely', occured: 'occurred',
+    untill: 'until', wich: 'which', thier: 'their', becuase: 'because',
+    freind: 'friend', wierd: 'weird', alot: 'a lot', beleive: 'believe',
+    acheive: 'achieve', goverment: 'government', enviroment: 'environment',
+    neccessary: 'necessary', accomodate: 'accommodate', occassion: 'occasion',
+    embarass: 'embarrass', existance: 'existence', independant: 'independent',
+    maintainance: 'maintenance', noticable: 'noticeable', priviledge: 'privilege',
+    publically: 'publicly', recomend: 'recommend', refered: 'referred',
+    sucessful: 'successful', tommorow: 'tomorrow', wheter: 'whether',
+    writen: 'written', youre: "you're", dont: "don't", cant: "can't",
+    wont: "won't", im: "I'm", ive: "I've", didnt: "didn't", doesnt: "doesn't",
+    isnt: "isn't", wasnt: "wasn't", arent: "aren't", shouldnt: "shouldn't",
+    wouldnt: "wouldn't", couldnt: "couldn't", thats: "that's", whats: "what's"
+  };
+
+  // Listens on 'input' (not 'keydown') so the trigger character comes from
+  // the browser's own event.data rather than a hand-tracked key — this
+  // fires correctly no matter how the character arrived (physical key,
+  // IME, autofill, execCommand), which keydown-based .key sniffing doesn't
+  // reliably cover.
+  document.addEventListener('input', (e) => {
+    const editor = e.target;
+    if (!editor || !editor.classList || !editor.classList.contains('editor')) return;
+    if (e.inputType !== 'insertText' || !e.data || !'.,!?;: '.includes(e.data)) return;
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+
+    // Robust text-before-cursor extraction via Range.toString(): works
+    // regardless of whether the cursor sits inside a text node or at an
+    // element boundary (which happens right after execCommand mutations) —
+    // same technique already used in updateStatusPos() below. The trigger
+    // character is already inserted by this point, so strip it off first.
+    const probe = document.createRange();
+    probe.selectNodeContents(editor);
+    probe.setEnd(range.startContainer, range.startOffset);
+    let textBefore = probe.toString();
+    if (textBefore.endsWith(e.data)) textBefore = textBefore.slice(0, -e.data.length);
+    const match = textBefore.match(/([a-zA-Z']+)$/);
+    if (!match) return;
+    const word = match[1];
+    const lower = word.toLowerCase();
+    if (!(lower in AUTOCORRECT_MAP)) return;
+
+    let correction = AUTOCORRECT_MAP[lower];
+    if (word[0] === word[0].toUpperCase() && word[0].toLowerCase() !== word[0]) {
+      correction = correction[0].toUpperCase() + correction.slice(1);
+    }
+
+    // Defer the fix-up to right after this input event finishes: Chromium
+    // refuses to run a second execCommand while one is still unwinding on
+    // the call stack (harmless for a real keypress, but this event can also
+    // fire from another execCommand-driven insertion, e.g. paste), so a
+    // same-tick execCommand call here would silently no-op.
+    setTimeout(() => {
+      // Remove the typed word plus the trigger character via repeated
+      // "delete" (backspace-equivalent) — relies on the browser's own
+      // caret-based editing instead of manual Range math, so it's correct
+      // regardless of the underlying DOM shape.
+      for (let i = 0; i < word.length + e.data.length; i++) document.execCommand('delete', false);
+
+      const escaped = word.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      document.execCommand('insertHTML', false,
+        `<span class="autocorrect-fix" data-original="${escaped}">${correction}</span>${e.data}`);
+    }, 0);
+  });
+
+  // Single shared tooltip, positioned over whatever autocorrect-fix span is hovered
+  const revertTip = document.createElement('div');
+  revertTip.className = 'autocorrect-tip';
+  revertTip.hidden = true;
+  document.body.appendChild(revertTip);
+  let revertTarget = null;
+
+  document.addEventListener('mouseover', (e) => {
+    const span = e.target.closest && e.target.closest('.autocorrect-fix');
+    if (!span) return;
+    revertTarget = span;
+    revertTip.innerHTML = '';
+    const label = document.createElement('span');
+    label.textContent = `Changed from "${span.dataset.original}"`;
+    const undoBtn = document.createElement('button');
+    undoBtn.type = 'button';
+    undoBtn.textContent = 'Undo';
+    undoBtn.addEventListener('click', () => {
+      if (!revertTarget) return;
+      revertTarget.replaceWith(document.createTextNode(revertTarget.dataset.original));
+      revertTip.hidden = true;
+      revertTarget = null;
+    });
+    revertTip.appendChild(label);
+    revertTip.appendChild(undoBtn);
+    const rect = span.getBoundingClientRect();
+    revertTip.style.left = Math.round(rect.left) + 'px';
+    revertTip.style.top = Math.round(rect.bottom + 4) + 'px';
+    revertTip.hidden = false;
+  });
+  document.addEventListener('mouseout', (e) => {
+    const span = e.target.closest && e.target.closest('.autocorrect-fix');
+    if (!span) return;
+    // don't hide if the mouse moved onto the tooltip itself (to click Undo)
+    if (e.relatedTarget && revertTip.contains(e.relatedTarget)) return;
+    revertTip.hidden = true;
+    revertTarget = null;
+  });
 
   /* ================= calculator side panel ================= */
   (function () {

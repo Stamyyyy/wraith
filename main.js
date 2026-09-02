@@ -393,26 +393,38 @@ ipcMain.on('toggle-click-through', () => {
 });
 
 /* ---------- app lifecycle ---------- */
-app.whenReady().then(() => {
-  createWindow();
-  createTray();
-
-  globalShortcut.register(settings.summonHotkey || 'CommandOrControl+`', () => {
-    summonToggle();
+// Enforce single instance: a second launch just focuses the existing window
+// instead of fighting the first one for the same cache/lock files (the exact
+// error that came up when a leftover process was still running).
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showWindow();
   });
-  globalShortcut.register('CommandOrControl+Shift+T', () => {
-    if (win && !win.isDestroyed()) win.webContents.send('request-click-through-toggle');
-  });
 
-  if (settings.startWithWindows) {
-    app.setLoginItemSettings({ openAtLogin: true });
-  }
+  app.whenReady().then(() => {
+    createWindow();
+    createTray();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    else showWindow();
+    globalShortcut.register(settings.summonHotkey || 'CommandOrControl+`', () => {
+      summonToggle();
+    });
+    globalShortcut.register('CommandOrControl+Shift+T', () => {
+      if (win && !win.isDestroyed()) win.webContents.send('request-click-through-toggle');
+    });
+
+    if (settings.startWithWindows) {
+      app.setLoginItemSettings({ openAtLogin: true });
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      else showWindow();
+    });
   });
-});
+}
 
 app.on('window-all-closed', () => {
   // keep running in tray; do not quit
