@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, globalShortcut, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, globalShortcut, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -44,7 +44,8 @@ const DEFAULT_SETTINGS = {
   notesDir: notesDirDefault,
   startWithWindows: false,
   spellcheck: true,
-  summonHotkey: 'CommandOrControl+`'
+  summonHotkey: 'CommandOrControl+`',
+  summonAtMouse: false
 };
 
 function loadSettings() {
@@ -132,6 +133,28 @@ function showWindow() {
   win.show();
   win.focus();
 }
+function moveWindowToCursor() {
+  if (!win || win.isDestroyed()) return;
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  const bounds = win.getBounds();
+  const wa = display.workArea;
+  let x = Math.round(point.x - bounds.width / 2);
+  let y = Math.round(point.y - bounds.height / 2);
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - bounds.width));
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - bounds.height));
+  win.setPosition(x, y);
+}
+
+// Used by the global summon hotkey specifically — repositions to the cursor
+// (if enabled) only when actually about to show, never on hide/tray-click.
+function summonToggle() {
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  const aboutToShow = !(win.isVisible() && !win.isMinimized());
+  if (aboutToShow && settings.summonAtMouse) moveWindowToCursor();
+  toggleWindow();
+}
+
 function toggleWindow() {
   if (!win || win.isDestroyed()) { createWindow(); return; }
   if (win.isVisible() && !win.isMinimized()) win.hide();
@@ -373,7 +396,7 @@ app.whenReady().then(() => {
   createTray();
 
   globalShortcut.register(settings.summonHotkey || 'CommandOrControl+`', () => {
-    toggleWindow();
+    summonToggle();
   });
   globalShortcut.register('CommandOrControl+Shift+T', () => {
     if (win && !win.isDestroyed()) win.webContents.send('request-click-through-toggle');

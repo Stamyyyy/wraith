@@ -70,6 +70,7 @@
     document.getElementById('set-spellcheck').checked = settings.spellcheck !== false;
     document.getElementById('set-autosave-interval').value = settings.autosaveIntervalSec ?? 20;
     document.getElementById('set-start-with-windows').checked = !!settings.startWithWindows;
+    document.getElementById('set-summon-at-mouse').checked = !!settings.summonAtMouse;
     document.getElementById('set-notes-dir').textContent = settings.notesDir || '-';
     document.getElementById('set-terminal-status').textContent = terminalMode === 'pty'
       ? 'Available (full terminal)'
@@ -96,6 +97,7 @@
   document.getElementById('set-spellcheck').addEventListener('change', (e) => patchSettings({ spellcheck: e.target.checked }));
   document.getElementById('set-autosave-interval').addEventListener('change', (e) => patchSettings({ autosaveIntervalSec: Number(e.target.value) }));
   document.getElementById('set-start-with-windows').addEventListener('change', (e) => patchSettings({ startWithWindows: e.target.checked }));
+  document.getElementById('set-summon-at-mouse').addEventListener('change', (e) => patchSettings({ summonAtMouse: e.target.checked }));
 
   /* ================= titlebar buttons ================= */
   document.getElementById('btn-min').addEventListener('click', () => window.ghost.send('win-minimize'));
