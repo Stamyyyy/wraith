@@ -20,7 +20,7 @@ const ptyProcesses = new Map(); // tabId -> pty process
 const userDataDir = app.getPath('userData');
 const settingsPath = path.join(userDataDir, 'settings.json');
 const autosaveDir = path.join(userDataDir, 'autosave');
-const notesDirDefault = path.join(app.getPath('documents'), 'Ghost Notes');
+const notesDirDefault = path.join(app.getPath('documents'), 'Wraith Notes');
 
 function ensureDir(p) {
   try { fs.mkdirSync(p, { recursive: true }); } catch (e) {}
@@ -142,7 +142,7 @@ function toggleWindow() {
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.ico'));
   tray = new Tray(icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 }));
-  tray.setToolTip('Ghost Notepad');
+  tray.setToolTip('Wraith');
   const menu = Menu.buildFromTemplate([
     { label: 'Show / Hide', click: () => toggleWindow() },
     { type: 'separator' },
@@ -182,7 +182,7 @@ ipcMain.handle('note-open-dialog', async () => {
     defaultPath: settings.notesDir,
     filters: [
       { name: 'Text Documents', extensions: ['txt'] },
-      { name: 'Ghost Notes (formatted)', extensions: ['html'] },
+      { name: 'Wraith Notes (formatted)', extensions: ['html'] },
       { name: 'All Files', extensions: ['*'] }
     ],
     properties: ['openFile']
@@ -220,7 +220,7 @@ ipcMain.handle('note-save', (e, { filePath, plain, html, wantsFormatted, suggest
       defaultPath: path.join(settings.notesDir, name + (wantsFormatted ? '.html' : '.txt')),
       filters: [
         { name: 'Text Documents (plain)', extensions: ['txt'] },
-        { name: 'Ghost Note (keeps formatting)', extensions: ['html'] }
+        { name: 'Wraith Note (keeps formatting)', extensions: ['html'] }
       ]
     });
     if (!target) return null;

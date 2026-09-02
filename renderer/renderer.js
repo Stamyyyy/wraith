@@ -131,8 +131,8 @@
 
   function updateTitlebar() {
     const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab) { titlebarText.textContent = 'Ghost Notepad'; return; }
-    titlebarText.textContent = `${tab.isDirty ? '*' : ''}${tab.title} - Ghost Notepad`;
+    if (!tab) { titlebarText.textContent = 'Wraith'; return; }
+    titlebarText.textContent = `${tab.isDirty ? '*' : ''}${tab.title} - Wraith`;
   }
 
   function showLauncher() {
@@ -534,6 +534,126 @@
     document.documentElement.style.setProperty('--zoom', zoom);
     statusZoom.textContent = Math.round(zoom * 100) + '%';
   }
+
+  /* ================= calculator side panel ================= */
+  (function () {
+    const toggle = document.getElementById('calc-toggle');
+    const panel = document.getElementById('calc-panel');
+    const display = document.getElementById('calc-display');
+    const advToggle = document.getElementById('calc-adv-toggle');
+    const advPanel = document.getElementById('calc-advanced');
+    const exprInput = document.getElementById('calc-graph-expr');
+    const plotBtn = document.getElementById('calc-plot-btn');
+    const canvas = document.getElementById('calc-graph-canvas');
+
+    let expr = '';
+    let calcOpen = false;
+
+    function setOpen(open) {
+      calcOpen = open;
+      document.body.classList.toggle('calc-open', open);
+      panel.hidden = !open;
+      // arrow points OUTWARD (away from content) when closed = "click to drag out";
+      // points INWARD (back toward content) when open = "click to put it back in"
+      toggle.innerHTML = open ? '&#x25C0;' : '&#x25B6;';
+      toggle.title = open ? 'Close calculator' : 'Open calculator';
+    }
+    toggle.addEventListener('click', () => setOpen(!calcOpen));
+
+    function updateDisplay() {
+      display.textContent = expr || '0';
+    }
+
+    function pressKey(k) {
+      if (k === 'C') {
+        expr = '';
+      } else if (k === 'back') {
+        expr = expr.slice(0, -1);
+      } else if (k === '=') {
+        try {
+          const result = MathExpr.evaluate(expr);
+          expr = String(Math.round(result * 1e10) / 1e10);
+        } catch (e) {
+          expr = 'Error';
+        }
+      } else {
+        if (expr === 'Error') expr = '';
+        expr += k;
+      }
+      updateDisplay();
+    }
+    document.querySelectorAll('.calc-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => pressKey(btn.dataset.k));
+    });
+
+    advToggle.addEventListener('click', () => {
+      const willShow = advPanel.hidden;
+      advPanel.hidden = !willShow;
+      advToggle.innerHTML = 'Advanced ' + (willShow ? '&#x25B4;' : '&#x25BE;');
+    });
+
+    function plotGraph() {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const expression = exprInput.value.trim();
+      if (!expression) return;
+
+      const xMin = -10, xMax = 10, samples = 200;
+      const points = [];
+      let yMin = Infinity, yMax = -Infinity;
+      for (let i = 0; i <= samples; i++) {
+        const x = xMin + (xMax - xMin) * (i / samples);
+        let y;
+        try { y = MathExpr.evaluate(expression, x); } catch (e) { points.push(null); continue; }
+        if (typeof y !== 'number' || !isFinite(y)) { points.push(null); continue; }
+        points.push({ x, y });
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+      }
+      if (yMin === Infinity) {
+        ctx.fillStyle = '#e8b4b4';
+        ctx.font = '11px sans-serif';
+        ctx.fillText('Could not evaluate this expression', 8, h / 2);
+        return;
+      }
+      if (yMin === yMax) { yMin -= 1; yMax += 1; }
+      const pad = (yMax - yMin) * 0.1;
+      yMin -= pad; yMax += pad;
+
+      const toPx = (x, y) => [
+        ((x - xMin) / (xMax - xMin)) * w,
+        h - ((y - yMin) / (yMax - yMin)) * h
+      ];
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      if (yMin < 0 && yMax > 0) {
+        const [, zy] = toPx(0, 0);
+        ctx.beginPath(); ctx.moveTo(0, zy); ctx.lineTo(w, zy); ctx.stroke();
+      }
+      if (xMin < 0 && xMax > 0) {
+        const [zx] = toPx(0, 0);
+        ctx.beginPath(); ctx.moveTo(zx, 0); ctx.lineTo(zx, h); ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#2fd98f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let started = false;
+      for (const p of points) {
+        if (!p) { started = false; continue; }
+        const [px, py] = toPx(p.x, p.y);
+        if (!started) { ctx.moveTo(px, py); started = true; }
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    plotBtn.addEventListener('click', plotGraph);
+    exprInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') plotGraph(); });
+
+    updateDisplay();
+  })();
 
   /* ================= init ================= */
   (async function init() {

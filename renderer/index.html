@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Ghost Notepad</title>
+<title>Wraith</title>
 <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -11,7 +11,7 @@
     <div class="titlebar-icon">
       <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 8 L14 12 L6 16" stroke="#2fd98f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="16" y1="16" x2="19" y2="16" stroke="#2fd98f" stroke-width="2.2" stroke-linecap="round"/></svg>
     </div>
-    <div class="titlebar-text" id="titlebar-text">Ghost Notepad</div>
+    <div class="titlebar-text" id="titlebar-text">Wraith</div>
     <div class="titlebar-btns">
       <button id="btn-min" title="Minimize">&#x2013;</button>
       <button id="btn-close" title="Hide to tray">&#x2715;</button>
@@ -46,6 +46,28 @@
       </div>
     </div>
     <!-- per-tab panes get injected here -->
+  </div>
+
+  <button class="calc-toggle" id="calc-toggle" title="Calculator">&#x25B6;</button>
+  <div class="calc-panel" id="calc-panel" hidden>
+    <div class="calc-display" id="calc-display">0</div>
+    <div class="calc-buttons">
+      <button data-k="C">C</button><button data-k="(">(</button><button data-k=")">)</button><button data-k="/">&divide;</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button data-k="*">&times;</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button data-k="-">&minus;</button>
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button data-k="+">+</button>
+      <button data-k="0">0</button><button data-k=".">.</button><button data-k="back">&#x232B;</button><button data-k="=" class="calc-eq">=</button>
+    </div>
+    <button class="calc-adv-toggle" id="calc-adv-toggle">Advanced &#x25BE;</button>
+    <div class="calc-advanced" id="calc-advanced" hidden>
+      <div class="calc-adv-row">
+        <span class="calc-adv-label">f(x) =</span>
+        <input type="text" id="calc-graph-expr" placeholder="sin(x)*2">
+        <button id="calc-plot-btn">Plot</button>
+      </div>
+      <canvas id="calc-graph-canvas" width="220" height="160"></canvas>
+      <div class="calc-adv-hint">sin cos tan sqrt abs log ln exp floor ceil round, ^ for power, pi and e</div>
+    </div>
   </div>
 
   <div class="find-bar" id="find-bar" hidden>
@@ -157,6 +179,7 @@
 
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="mathexpr.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

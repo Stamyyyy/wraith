@@ -1,5 +1,5 @@
 {
-  "name": "ghost-notepad",
+  "name": "wraith",
   "version": "2.0.0",
   "description": "A transparent, see-through Notepad replacement with real formatting, plus built-in WSL and Command Prompt terminals.",
   "main": "main.js",
@@ -20,8 +20,8 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.stam.ghostnotepad",
-    "productName": "Ghost Notepad",
+    "appId": "com.stam.wraith",
+    "productName": "Wraith",
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"

@@ -1,4 +1,4 @@
-# Ghost Notepad
+# Wraith
 
 A transparent, tabbed workspace: Notepad, a Command Prompt, and a WSL Ubuntu
 terminal, all in one see-through window. Pick one from the launcher, and
