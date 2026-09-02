@@ -197,15 +197,19 @@
     sep();
     btn('bullet', '•', 'Bullet list', 'insertUnorderedList');
     btn('check', '☑', 'Checklist item', () => {
+      // Tag the inserted node itself rather than assuming it's the last
+      // .checklist-item in DOM order — that assumption breaks the moment a
+      // note already has an earlier checklist item and you insert a new one
+      // above it.
       document.execCommand('insertHTML', false,
-        '<label class="checklist-item" contenteditable="false"><input type="checkbox">&nbsp;</label>');
+        '<label class="checklist-item" data-just-inserted contenteditable="false"><input type="checkbox">&nbsp;</label>');
       // Chrome leaves the caret BEFORE a just-inserted contenteditable="false"
       // node instead of after it (there's no valid caret position inside a
       // non-editable island), so anything typed next would land in front of
       // the checkbox. Explicitly move the caret past it.
-      const items = editor.querySelectorAll('.checklist-item');
-      const inserted = items[items.length - 1];
+      const inserted = editor.querySelector('.checklist-item[data-just-inserted]');
       if (inserted) {
+        inserted.removeAttribute('data-just-inserted');
         const r = document.createRange();
         r.setStartAfter(inserted);
         r.collapse(true);
@@ -633,7 +637,23 @@
     // the call stack (harmless for a real keypress, but this event can also
     // fire from another execCommand-driven insertion, e.g. paste), so a
     // same-tick execCommand call here would silently no-op.
+    //
+    // Capture the fix-up spot as a live Range now, at event time — by the
+    // time the deferred callback runs, the user may already be typing the
+    // next word, so execCommand('delete') acting on "wherever the caret
+    // currently is" would eat their new characters instead of the typo.
+    // Ranges auto-track DOM edits that happen elsewhere in the same node,
+    // so this stays correctly anchored even as more text is typed after it.
+    const fixRange = range.cloneRange();
     setTimeout(() => {
+      const s = window.getSelection();
+      // Save wherever the user's caret actually is now, so we can restore
+      // it after jumping back to fix an earlier word.
+      const liveRange = (s.rangeCount && s.isCollapsed) ? s.getRangeAt(0).cloneRange() : null;
+
+      s.removeAllRanges();
+      s.addRange(fixRange);
+
       // Remove the typed word plus the trigger character via repeated
       // "delete" (backspace-equivalent) — relies on the browser's own
       // caret-based editing instead of manual Range math, so it's correct
@@ -643,6 +663,16 @@
       const escaped = word.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
       document.execCommand('insertHTML', false,
         `<span class="autocorrect-fix" data-original="${escaped}">${correction}</span>${e.data}`);
+
+      // Jump back to wherever the user actually is now. liveRange is a live
+      // DOM Range, so the browser has already shifted its offset to account
+      // for the delete+insert above — even when the correction isn't the
+      // same length as the typo (e.g. "alot" -> "a lot").
+      if (liveRange) {
+        const s2 = window.getSelection();
+        s2.removeAllRanges();
+        s2.addRange(liveRange);
+      }
     }, 0);
   });
 
