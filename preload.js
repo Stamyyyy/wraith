@@ -24,14 +24,16 @@ const SEND_CHANNELS = [
   'terminal-input',
   'terminal-resize',
   'terminal-kill',
-  'toggle-click-through'
+  'toggle-click-through',
+  'unsaved-check-result'
 ];
 
 const RECEIVE_CHANNELS = [
   'terminal-data',
   'terminal-exit',
   'click-through-changed',
-  'request-click-through-toggle'
+  'request-click-through-toggle',
+  'check-unsaved-before-quit'
 ];
 
 contextBridge.exposeInMainWorld('ghost', {

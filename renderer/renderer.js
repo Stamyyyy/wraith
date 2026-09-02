@@ -225,6 +225,19 @@
     btn('align-l', 'L', 'Align left', 'justifyLeft');
     btn('align-c', 'C', 'Align center', 'justifyCenter');
     btn('align-r', 'R', 'Align right', 'justifyRight');
+    sep();
+    const fontBtn = btn('font', 'Aa', 'Font', () => {
+      const willOpen = fontPanel.hidden;
+      if (willOpen) {
+        fontFamilySel.value = settings.fontFamily || 'Consolas, monospace';
+        fontSizeSel.value = String(settings.fontSize || 14);
+        const rect = fontBtn.getBoundingClientRect();
+        fontPanel.style.left = Math.round(rect.left) + 'px';
+        fontPanel.style.right = 'auto';
+        fontPanel.style.top = Math.round(rect.bottom + 4) + 'px';
+      }
+      fontPanel.hidden = !willOpen;
+    });
     pane.appendChild(toolbar);
 
     const editorWrap = document.createElement('div');
@@ -555,10 +568,33 @@
     fontPanel.hidden = true;
     const tab = activeNoteTab(); if (tab) tab.editorEl.focus();
   });
+  // Dropdown behavior: close it on an outside click, same as a native <select>.
+  document.addEventListener('mousedown', (e) => {
+    if (fontPanel.hidden) return;
+    if (fontPanel.contains(e.target) || e.target.closest('.font')) return;
+    fontPanel.hidden = true;
+  });
 
   /* ================= click-through / global summon ================= */
   window.ghost.on('click-through-changed', (enabled) => { statusClickthrough.hidden = !enabled; });
   window.ghost.on('request-click-through-toggle', () => window.ghost.send('toggle-click-through'));
+
+  /* ================= confirm unsaved notes before the app actually quits ================= */
+  // Reuses the exact same per-tab confirm/save flow closeTab() already uses,
+  // just walked across every dirty note instead of one.
+  window.ghost.on('check-unsaved-before-quit', async () => {
+    const dirtyNotes = tabs.filter((t) => t.type === 'note' && t.isDirty);
+    for (const tab of dirtyNotes) {
+      switchToTab(tab.id); // bring it into view so the user can see what they're being asked about
+      const choice = await window.ghost.invoke('note-confirm-close', { title: tab.title });
+      if (choice === 'cancel') { window.ghost.send('unsaved-check-result', false); return; }
+      if (choice === 'save') {
+        const ok = await saveTab(tab, false);
+        if (!ok) { window.ghost.send('unsaved-check-result', false); return; }
+      }
+    }
+    window.ghost.send('unsaved-check-result', true);
+  });
 
   /* ================= keyboard shortcuts ================= */
   window.addEventListener('keydown', (e) => {

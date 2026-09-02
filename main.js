@@ -9,6 +9,8 @@ let win = null;
 let tray = null;
 let ptyModule = null;
 let ptyLoadError = null;
+let quitConfirmed = false; // set once the renderer has confirmed no unsaved notes remain
+let quitCheckTimer = null; // also doubles as an "a check is already in flight" guard
 
 try {
   ptyModule = require('node-pty');
@@ -125,6 +127,10 @@ function createWindow() {
   });
 
   win.on('close', (e) => {
+    // Only let the window actually close once the app is genuinely quitting
+    // (the renderer has already confirmed no unsaved notes remain) — the X
+    // button and every other path still just hides to tray as before.
+    if (quitConfirmed) return;
     e.preventDefault();
     win.hide();
   });
@@ -171,16 +177,7 @@ function createTray() {
   const menu = Menu.buildFromTemplate([
     { label: 'Show / Hide', click: () => toggleWindow() },
     { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        // app.exit() skips 'before-quit' (which normally kills these), so
-        // do it explicitly here first — otherwise wsl.exe/cmd.exe from any
-        // open terminal tabs are left running as orphans after Quit.
-        for (const [, proc] of ptyProcesses) { try { proc.kill(); } catch (e) {} }
-        app.exit(0);
-      }
-    }
+    { label: 'Quit', click: () => app.quit() }
   ]);
   tray.setContextMenu(menu);
   tray.on('click', () => toggleWindow());
@@ -278,6 +275,17 @@ ipcMain.handle('note-confirm-close', (e, { title }) => {
     message: `Do you want to save changes to ${title}?`
   });
   return ['save', 'discard', 'cancel'][choice];
+});
+
+/* ---------- IPC: confirm-before-quit (renderer walks its own dirty tabs
+   through note-confirm-close/note-save, then reports back whether it's
+   safe to actually exit) ---------- */
+ipcMain.on('unsaved-check-result', (e, canQuit) => {
+  if (quitCheckTimer) { clearTimeout(quitCheckTimer); quitCheckTimer = null; }
+  if (canQuit) {
+    quitConfirmed = true;
+    app.quit();
+  }
 });
 
 /* ---------- IPC: autosave (recovery slot for untitled notes) ---------- */
@@ -439,10 +447,39 @@ app.on('window-all-closed', () => {
   // keep running in tray; do not quit
 });
 
-app.on('before-quit', () => {
-  for (const [, proc] of ptyProcesses) {
-    try { proc.kill(); } catch (e) {}
+// Ask before actually quitting if any note has unsaved changes. The first
+// before-quit is always intercepted (preventDefault) so we can ask the
+// renderer; once it reports back "yes, safe to quit" via the
+// 'unsaved-check-result' handler above, quitConfirmed is set and app.quit()
+// is called again — that second time this handler just kills the terminal
+// child processes and lets the quit actually proceed.
+app.on('before-quit', (e) => {
+  if (quitConfirmed) {
+    for (const [, proc] of ptyProcesses) {
+      try { proc.kill(); } catch (err) {}
+    }
+    return;
   }
+  e.preventDefault();
+  if (quitCheckTimer) return; // a check is already in flight — don't stack another prompt
+  if (!win || win.isDestroyed()) { quitConfirmed = true; app.quit(); return; }
+
+  // Bring the window forward so any "save changes?" dialog the renderer
+  // triggers is actually visible, even if we were sitting hidden in the tray.
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send('check-unsaved-before-quit');
+
+  // Safety net: if the renderer never responds (crashed, stuck, whatever),
+  // don't leave the app permanently unable to quit — force it through after
+  // a while. Generous timeout since the user may be working through a
+  // save-changes prompt for more than one note.
+  quitCheckTimer = setTimeout(() => {
+    quitCheckTimer = null;
+    quitConfirmed = true;
+    app.quit();
+  }, 60000);
 });
 
 app.on('will-quit', () => {
