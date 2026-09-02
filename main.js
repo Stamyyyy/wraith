@@ -359,26 +359,38 @@ function spawnFallback(shell, args, cwd, env) {
   };
 }
 
-ipcMain.handle('terminal-spawn', (e, { tabId, shellType }) => {
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+ipcMain.handle('terminal-spawn', async (e, { tabId, shellType }) => {
   const shell = shellType === 'wsl' ? 'wsl.exe' : (process.env.COMSPEC || 'cmd.exe');
   const usingFallback = !ptyModule;
-  try {
-    const proc = ptyModule
-      ? ptyModule.spawn(shell, [], { name: 'xterm-color', cols: 80, rows: 24, cwd: os.homedir(), env: process.env })
-      : spawnFallback(shell, [], os.homedir(), process.env);
+  // Right after Windows logs in (e.g. this app started via "Start with Windows"),
+  // wsl.exe can transiently fail to launch because the WSL virtual machine/service
+  // hasn't finished starting yet. Retry a few times before giving up instead of
+  // failing the tab permanently on that first attempt.
+  const maxAttempts = shellType === 'wsl' ? 3 : 1;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const proc = ptyModule
+        ? ptyModule.spawn(shell, [], { name: 'xterm-color', cols: 80, rows: 24, cwd: os.homedir(), env: process.env })
+        : spawnFallback(shell, [], os.homedir(), process.env);
 
-    proc.onData((data) => {
-      if (win && !win.isDestroyed()) win.webContents.send('terminal-data', tabId, data);
-    });
-    proc.onExit(() => {
-      ptyProcesses.delete(tabId);
-      if (win && !win.isDestroyed()) win.webContents.send('terminal-exit', tabId);
-    });
-    ptyProcesses.set(tabId, proc);
-    return { ok: true, fallback: usingFallback };
-  } catch (err) {
-    return { ok: false, error: String(err) };
+      proc.onData((data) => {
+        if (win && !win.isDestroyed()) win.webContents.send('terminal-data', tabId, data);
+      });
+      proc.onExit(() => {
+        ptyProcesses.delete(tabId);
+        if (win && !win.isDestroyed()) win.webContents.send('terminal-exit', tabId);
+      });
+      ptyProcesses.set(tabId, proc);
+      return { ok: true, fallback: usingFallback };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) await delay(1500);
+    }
   }
+  return { ok: false, error: String(lastErr) };
 });
 
 ipcMain.on('terminal-input', (e, tabId, data) => {
