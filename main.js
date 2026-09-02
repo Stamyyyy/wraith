@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Stam. All rights reserved. See LICENSE.
+
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, globalShortcut, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');

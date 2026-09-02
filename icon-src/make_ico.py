@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Stam. All rights reserved. See LICENSE.
+
 import struct
 
 sizes = [16, 24, 32, 48, 64, 128, 256]

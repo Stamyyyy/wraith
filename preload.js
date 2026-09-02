@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Stam. All rights reserved. See LICENSE.
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 const INVOKE_CHANNELS = [
