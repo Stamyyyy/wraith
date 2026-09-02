@@ -80,3 +80,9 @@ npm run dist
   terminal spawning (`node-pty` + real `cmd.exe`/`wsl.exe` processes) has
   **not** been run end-to-end — that needs a real Windows machine with the
   native module compiled. Test it for real and tell me what breaks.
+
+## License
+
+&copy; Stam. All rights reserved. This repository is shared publicly for
+portfolio and demonstration purposes only — viewing the code doesn't grant
+permission to copy, reuse, redistribute, or build on it without my consent.

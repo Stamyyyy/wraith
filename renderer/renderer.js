@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Stam. All rights reserved. See LICENSE.
+
 (function () {
   const titlebarText = document.getElementById('titlebar-text');
   const tabsList = document.getElementById('tabs-list');

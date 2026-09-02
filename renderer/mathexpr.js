@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Stam. All rights reserved. See LICENSE.
+
 /* Small, dependency-free math expression parser/evaluator.
    Deliberately not using eval() — this runs on whatever the user types,
    and a hand-rolled recursive-descent parser has zero code-injection
