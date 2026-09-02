@@ -171,7 +171,16 @@ function createTray() {
   const menu = Menu.buildFromTemplate([
     { label: 'Show / Hide', click: () => toggleWindow() },
     { type: 'separator' },
-    { label: 'Quit', click: () => { app.exit(0); } }
+    {
+      label: 'Quit',
+      click: () => {
+        // app.exit() skips 'before-quit' (which normally kills these), so
+        // do it explicitly here first — otherwise wsl.exe/cmd.exe from any
+        // open terminal tabs are left running as orphans after Quit.
+        for (const [, proc] of ptyProcesses) { try { proc.kill(); } catch (e) {} }
+        app.exit(0);
+      }
+    }
   ]);
   tray.setContextMenu(menu);
   tray.on('click', () => toggleWindow());

@@ -276,9 +276,20 @@
     }, secs * 1000);
   }
 
+  // A brand-new note has no filePath yet, so there's nothing to infer the
+  // save format from — check the DOM itself for markup the toolbar actually
+  // produces (bold/italic/underline/strike, lists, checklist items,
+  // alignment) so a formatted note defaults to the .html filter instead of
+  // silently offering .txt and discarding everything on the first save.
+  // Plain <div> line-wrapping from pressing Enter doesn't count — a simple
+  // multi-line note should still default to plain text.
+  function hasRichFormatting(editorEl) {
+    return !!editorEl.querySelector('b, strong, i, em, u, s, strike, ul, ol, .checklist-item, [style*="text-align"]');
+  }
+
   async function saveTab(tab, forceDialog) {
     if (tab.type !== 'note') return;
-    const wantsFormatted = tab.filePath ? tab.filePath.toLowerCase().endsWith('.html') : false;
+    const wantsFormatted = tab.filePath ? tab.filePath.toLowerCase().endsWith('.html') : hasRichFormatting(tab.editorEl);
     const result = await window.ghost.invoke('note-save', {
       filePath: forceDialog ? null : tab.filePath,
       plain: tab.editorEl.innerText,
@@ -513,7 +524,27 @@
   });
   document.getElementById('replace-all-btn').addEventListener('click', () => {
     const tab = activeNoteTab(); if (!tab || !findInput.value) return;
-    tab.editorEl.innerText = tab.editorEl.innerText.split(findInput.value).join(replaceInput.value);
+    // Was: tab.editorEl.innerText = tab.editorEl.innerText.split(...).join(...) —
+    // that overwrites the whole element as plain text, silently stripping every
+    // bit of formatting (bold, lists, checklists, alignment) from the entire
+    // note on a single click. Walk matches with window.find() and replace each
+    // one in place with execCommand instead, so everything else is untouched.
+    tab.editorEl.focus();
+    const start = document.createRange();
+    start.selectNodeContents(tab.editorEl);
+    start.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(start);
+
+    let count = 0;
+    const maxIterations = 5000; // guard against a pathological/runaway match
+    while (count < maxIterations && window.find(findInput.value, false, false, false, false, true, false)) {
+      const cur = window.getSelection();
+      if (!cur.rangeCount || !tab.editorEl.contains(cur.anchorNode)) break;
+      document.execCommand('insertText', false, replaceInput.value);
+      count++;
+    }
     tab.isDirty = true; renderTabBar(); updateTitlebar();
   });
 
