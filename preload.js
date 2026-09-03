@@ -33,7 +33,8 @@ const RECEIVE_CHANNELS = [
   'terminal-exit',
   'click-through-changed',
   'request-click-through-toggle',
-  'check-unsaved-before-quit'
+  'check-unsaved-before-quit',
+  'open-directory-tab'
 ];
 
 contextBridge.exposeInMainWorld('ghost', {

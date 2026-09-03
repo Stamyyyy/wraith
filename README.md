@@ -29,6 +29,12 @@ each opens as its own tab.
 - **Global summon hotkey**: `Ctrl+\`` shows/hides the window from anywhere,
   no need to focus it first (same convention VS Code uses for its terminal).
   Optionally summons to your current mouse position instead of its last spot.
+- **"Open in Wraith here"**: launched with a directory as an argument (e.g.
+  from Revenant's right-click menu or address bar), opens a new Command
+  Prompt tab starting there instead of your home folder. Works whether
+  Wraith is already running (forwarded through the single-instance lock, a
+  new tab gets added to the existing window) or not (opens fresh, starts
+  there directly).
 - **System tray**: closing the window hides it to tray instead of quitting.
   Quitting for real (from the tray menu) asks about any unsaved notes first,
   the same Save / Don't Save / Cancel prompt you get closing a single tab.

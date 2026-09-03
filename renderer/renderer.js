@@ -359,7 +359,7 @@
   }
 
   /* ================= terminal tabs ================= */
-  async function createTerminalTab(shellType) {
+  async function createTerminalTab(shellType, cwd) {
     const id = genId();
     const pane = document.createElement('div');
     pane.className = 'pane term-pane';
@@ -393,7 +393,7 @@
     // switchToTab() ran before tab.term existed, so its focus() call was a no-op — do it now instead.
     if (activeTabId === id) term.focus();
 
-    const spawnResult = await window.ghost.invoke('terminal-spawn', { tabId: id, shellType });
+    const spawnResult = await window.ghost.invoke('terminal-spawn', { tabId: id, shellType, cwd });
     if (!spawnResult.ok) {
       term.write(`\r\n\x1b[31mFailed to start: ${spawnResult.error}\x1b[0m\r\n`);
       return;
@@ -454,6 +454,14 @@
   window.ghost.on('terminal-exit', (tabId) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (tab && tab.term) tab.term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n');
+  });
+
+  // "Open in Wraith here" — another app (Revenant, or anything else that
+  // launches Wraith with a directory argument) asked for a new tab starting
+  // there. Always a Command Prompt tab: the path is a plain Windows path,
+  // and wsl.exe doesn't honor a Windows-side spawn cwd the way cmd.exe does.
+  window.ghost.on('open-directory-tab', (dir) => {
+    createTerminalTab('cmd', dir);
   });
 
   async function newNoteTab() {

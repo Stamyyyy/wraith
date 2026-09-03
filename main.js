@@ -141,6 +141,37 @@ function showWindow() {
   win.show();
   win.focus();
 }
+
+/* ---------- "open in Wraith here" (Revenant, or any other launcher, spawns
+   Wraith.exe with a target directory as an argument) ----------
+   Electron's own argv shape differs between dev (`electron . <args>`, so
+   args start at index 2) and packaged (`Wraith.exe <args>`, index 1) — the
+   standard app.isPackaged check handles that. Rather than trust position
+   alone (Electron/Squirrel can inject its own flags ahead of user args in
+   some launch paths), the last argument that's actually a real directory on
+   disk is taken as the target — anything else is ignored rather than
+   crashing a normal argv-less launch. */
+function extractDirArg(argv) {
+  const userArgs = argv.slice(app.isPackaged ? 1 : 2);
+  for (let i = userArgs.length - 1; i >= 0; i--) {
+    try {
+      if (fs.statSync(userArgs[i]).isDirectory()) return userArgs[i];
+    } catch (err) {}
+  }
+  return null;
+}
+
+// Opens a new Command Prompt tab starting in `dir`. cmd, not wsl — the path
+// handed in is always a plain Windows path (from Revenant or anywhere else
+// that'd trigger this), and wsl.exe doesn't honor a Windows-side spawn cwd
+// the way cmd.exe does, so there's no shell-type ambiguity to resolve here.
+function openDirectoryTab(dir) {
+  if (!win || win.isDestroyed()) { createWindow(); win.webContents.once('did-finish-load', () => openDirectoryTab(dir)); return; }
+  showWindow();
+  const send = () => win.webContents.send('open-directory-tab', dir);
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
+  else send();
+}
 function moveWindowToCursor() {
   if (!win || win.isDestroyed()) return;
   const point = screen.getCursorScreenPoint();
@@ -361,9 +392,16 @@ function spawnFallback(shell, args, cwd, env) {
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-ipcMain.handle('terminal-spawn', async (e, { tabId, shellType }) => {
+ipcMain.handle('terminal-spawn', async (e, { tabId, shellType, cwd }) => {
   const shell = shellType === 'wsl' ? 'wsl.exe' : (process.env.COMSPEC || 'cmd.exe');
   const usingFallback = !ptyModule;
+  // Real directory (from "open in Wraith here") if given and it still
+  // exists, else the usual default — never trust a caller-supplied cwd
+  // blindly, a stale/typo'd path would otherwise fail the whole tab.
+  let startDir = os.homedir();
+  if (cwd) {
+    try { if (fs.statSync(cwd).isDirectory()) startDir = cwd; } catch (err) {}
+  }
   // Right after Windows logs in (e.g. this app started via "Start with Windows"),
   // wsl.exe can transiently fail to launch because the WSL virtual machine/service
   // hasn't finished starting yet. Retry a few times before giving up instead of
@@ -373,8 +411,8 @@ ipcMain.handle('terminal-spawn', async (e, { tabId, shellType }) => {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const proc = ptyModule
-        ? ptyModule.spawn(shell, [], { name: 'xterm-color', cols: 80, rows: 24, cwd: os.homedir(), env: process.env })
-        : spawnFallback(shell, [], os.homedir(), process.env);
+        ? ptyModule.spawn(shell, [], { name: 'xterm-color', cols: 80, rows: 24, cwd: startDir, env: process.env })
+        : spawnFallback(shell, [], startDir, process.env);
 
       proc.onData((data) => {
         if (win && !win.isDestroyed()) win.webContents.send('terminal-data', tabId, data);
@@ -429,13 +467,18 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    showWindow();
+  app.on('second-instance', (event, argv) => {
+    const dir = extractDirArg(argv);
+    if (dir) openDirectoryTab(dir);
+    else showWindow();
   });
 
   app.whenReady().then(() => {
     createWindow();
     createTray();
+
+    const initialDir = extractDirArg(process.argv);
+    if (initialDir) openDirectoryTab(initialDir); // handles its own did-finish-load wait
 
     globalShortcut.register(settings.summonHotkey || 'CommandOrControl+`', () => {
       summonToggle();
